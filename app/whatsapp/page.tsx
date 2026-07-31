@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { inputClass, linkButton } from "../../components/ui/forms";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, cachedApiRequest, isAbortError } from "../../lib/api";
 import { localDateValue } from "../../lib/date";
 import {
   readableEnum,
@@ -63,7 +63,7 @@ export default function WhatsAppStatusPage() {
   const [feedback, setFeedback] = useState("");
   const [workingId, setWorkingId] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     const query = new URLSearchParams({ pageSize: "100" });
@@ -75,25 +75,28 @@ export default function WhatsAppStatusPage() {
         apiRequest<{
           notifications: WhatsAppNotification[];
           pagination: Pagination;
-        }>(`/whatsapp-notifications?${query.toString()}`),
-        apiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
+        }>(`/whatsapp-notifications?${query.toString()}`, { signal }),
+        cachedApiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
       ]);
       setNotifications(notificationData.notifications);
       setPagination(notificationData.pagination);
       setTeachers(teacherData.teachers);
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load WhatsApp notifications",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [date, status, teacherId]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const openWhatsApp = async (notification: WhatsAppNotification) => {
@@ -238,10 +241,10 @@ export default function WhatsAppStatusPage() {
       <PageFeedback
         empty={!notifications.length}
         error={error}
-        loading={loading}
-        onRetry={load}
+        loading={loading && !notifications.length}
+        onRetry={() => void load()}
       />
-      {!loading && !error && notifications.length ? (
+      {!error && notifications.length ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {notifications.map((notification) => (
             <article

@@ -5,12 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { inputClass } from "../../components/ui/forms";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, cachedApiRequest, isAbortError } from "../../lib/api";
 import { isoWeekForLocalDate } from "../../lib/date";
 import type {
   AttendanceStatus,
   FixtureRecordRow,
   FixtureStatus,
+  Pagination,
   Teacher,
 } from "../../lib/school-types";
 
@@ -50,11 +51,13 @@ export default function RecordsPage() {
   const [records, setRecords] = useState<FixtureRecordRow[]>([]);
   const [history, setHistory] = useState<HistoryFixture[]>([]);
   const [attendance, setAttendance] = useState<AttendanceReportRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiRequest<{ teachers: Teacher[] }>("/teachers")
+    cachedApiRequest<{ teachers: Teacher[] }>("/teachers")
       .then((data) => {
         setTeachers(data.teachers);
         setTeacherId((value) => value || data.teachers[0]?.id || "");
@@ -68,7 +71,7 @@ export default function RecordsPage() {
       );
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (tab === "history" && !teacherId) {
       setLoading(false);
       return;
@@ -77,13 +80,17 @@ export default function RecordsPage() {
     setError("");
     try {
       if (tab === "weekly") {
+        setPagination(null);
         const data = await apiRequest<{ records: FixtureRecordRow[] }>(
           `/records/weekly?year=${year}&week=${week}&sort=${sort}`,
+          { signal },
         );
         setRecords(data.records);
       } else if (tab === "yearly") {
+        setPagination(null);
         const data = await apiRequest<{ records: FixtureRecordRow[] }>(
           `/records/yearly?year=${year}&sort=${sort}`,
+          { signal },
         );
         setRecords(data.records);
       } else if (tab === "history") {
@@ -91,33 +98,52 @@ export default function RecordsPage() {
         if (from) query.set("from", from);
         if (to) query.set("to", to);
         if (!from && !to) query.set("year", String(year));
-        const data = await apiRequest<{ fixtures: HistoryFixture[] }>(
+        query.set("page", String(page));
+        query.set("pageSize", "100");
+        const data = await apiRequest<{
+          fixtures: HistoryFixture[];
+          pagination: Pagination;
+        }>(
           `/records/teachers/${teacherId}?${query.toString()}`,
+          { signal },
         );
         setHistory(data.fixtures);
+        setPagination(data.pagination);
       } else {
         const query = new URLSearchParams();
         if (from) query.set("from", from);
         if (to) query.set("to", to);
         if (!from && !to) query.set("year", String(year));
-        const data = await apiRequest<{ records: AttendanceReportRow[] }>(
+        query.set("page", String(page));
+        query.set("pageSize", "100");
+        const data = await apiRequest<{
+          records: AttendanceReportRow[];
+          pagination: Pagination;
+        }>(
           `/records/attendance?${query.toString()}`,
+          { signal },
         );
         setAttendance(data.records);
+        setPagination(data.pagination);
       }
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load records",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [from, sort, tab, teacherId, to, week, year]);
+  }, [from, page, sort, tab, teacherId, to, week, year]);
+
+  useEffect(() => setPage(1), [from, tab, teacherId, to, year]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const empty =
@@ -220,10 +246,10 @@ export default function RecordsPage() {
       <PageFeedback
         empty={empty}
         error={error}
-        loading={loading}
-        onRetry={load}
+        loading={loading && empty}
+        onRetry={() => void load()}
       />
-      {!loading && !error && !empty ? (
+      {!error && !empty ? (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           {tab === "history" ? (
             <table className="min-w-full text-left text-sm">
@@ -341,6 +367,29 @@ export default function RecordsPage() {
               </tbody>
             </table>
           )}
+        </div>
+      ) : null}
+      {pagination && pagination.totalPages > 1 ? (
+        <div className="mt-4 flex items-center justify-between rounded-xl bg-white p-3 text-sm">
+          <button
+            className="font-semibold text-primary disabled:text-slate-300"
+            disabled={loading || page <= 1}
+            onClick={() => setPage((value) => value - 1)}
+            type="button"
+          >
+            Previous
+          </button>
+          <span>
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <button
+            className="font-semibold text-primary disabled:text-slate-300"
+            disabled={loading || page >= pagination.totalPages}
+            onClick={() => setPage((value) => value + 1)}
+            type="button"
+          >
+            Next
+          </button>
         </div>
       ) : null}
     </DashboardShell>

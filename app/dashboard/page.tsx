@@ -4,13 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DashboardShell } from "../../components/dashboard-shell";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
-import { isoWeekForLocalDate, localDateValue } from "../../lib/date";
-import type {
-  AttendanceRecord,
-  FixtureRecordRow,
-  ProxyFixture,
-} from "../../lib/school-types";
+import { apiRequest, isAbortError } from "../../lib/api";
+import { localDateValue } from "../../lib/date";
 
 type Summary = {
   absent: number;
@@ -28,65 +23,32 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     const date = localDateValue();
-    const { year, weekNumber } = isoWeekForLocalDate();
     try {
-      const [attendance, fixtures, weekly, ready, opened, confirmed] =
-        await Promise.all([
-          apiRequest<{ records: AttendanceRecord[] }>(
-            `/attendance?date=${date}`,
-          ),
-          apiRequest<{ fixtures: ProxyFixture[] }>(`/fixtures?date=${date}`),
-          apiRequest<{ records: FixtureRecordRow[] }>(
-            `/records/weekly?year=${year}&week=${weekNumber}`,
-          ),
-          apiRequest<{ pagination: { total: number } }>(
-            `/whatsapp-notifications?date=${date}&status=READY&pageSize=1`,
-          ),
-          apiRequest<{ pagination: { total: number } }>(
-            `/whatsapp-notifications?date=${date}&status=OPENED&pageSize=1`,
-          ),
-          apiRequest<{ pagination: { total: number } }>(
-            `/whatsapp-notifications?date=${date}&status=MANUALLY_CONFIRMED&pageSize=1`,
-          ),
-        ]);
-      setSummary({
-        absent: attendance.records.filter(
-          (record) => record.status === "ABSENT",
-        ).length,
-        drafts: fixtures.fixtures.filter(
-          (fixture) => fixture.status === "DRAFT",
-        ).length,
-        published: fixtures.fixtures.filter(
-          (fixture) => fixture.status === "PUBLISHED",
-        ).length,
-        unassigned: fixtures.fixtures.filter(
-          (fixture) => fixture.status === "DRAFT" && !fixture.assignedTeacherId,
-        ).length,
-        weekly: weekly.records.reduce(
-          (total, record) => total + record.fixtureCount,
-          0,
-        ),
-        messagesReady: ready.pagination.total,
-        messagesOpened: opened.pagination.total,
-        messagesConfirmed: confirmed.pagination.total,
-      });
+      const data = await apiRequest<{ summary: Summary }>(
+        `/dashboard?date=${date}`,
+        { signal },
+      );
+      setSummary(data.summary);
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load dashboard",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   return (
@@ -102,10 +64,10 @@ export default function DashboardPage() {
       <PageFeedback
         empty={false}
         error={error}
-        loading={loading}
+        loading={loading && !summary}
         onRetry={load}
       />
-      {summary && !loading && !error ? (
+      {summary && !error ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             ["Today's absent teachers", summary.absent],

@@ -10,7 +10,12 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { ApiClientError, apiRequest } from "../../lib/api";
+import {
+  ApiClientError,
+  apiRequest,
+  cachedApiRequest,
+  isAbortError,
+} from "../../lib/api";
 import { localDateValue } from "../../lib/date";
 import {
   type AttendanceRecord,
@@ -111,31 +116,34 @@ export default function AttendancePage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     try {
       const [teacherData, attendanceData] = await Promise.all([
-        apiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
-        apiRequest<AttendanceResponse>(`/attendance?date=${date}`),
+        cachedApiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
+        apiRequest<AttendanceResponse>(`/attendance?date=${date}`, { signal }),
       ]);
       setTeachers(teacherData.teachers);
       setRecords(attendanceData.records);
       setSummary(attendanceData.summary);
       setSettings(attendanceData.settings);
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load attendance exceptions",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [date]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const availableTeachers = useMemo(() => {
@@ -263,10 +271,10 @@ export default function AttendancePage() {
       <PageFeedback
         empty={!records.length}
         error={error}
-        loading={loading}
-        onRetry={load}
+        loading={loading && !records.length}
+        onRetry={() => void load()}
       />
-      {!loading && records.length ? (
+      {records.length ? (
         <div className="space-y-3">
           {records.map((record) => {
             const periods = availabilityFor(record, settings.periodsPerDay);

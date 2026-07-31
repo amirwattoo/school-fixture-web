@@ -16,7 +16,7 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, invalidateApiCache } from "../../lib/api";
 import { readableEnum, type Teacher } from "../../lib/school-types";
 
 const teacherSchema = z.object({
@@ -78,6 +78,7 @@ export default function TeachersPage() {
     if (!window.confirm(`Disable ${teacher.name}?`)) return;
     try {
       await apiRequest(`/teachers/${teacher.id}`, { method: "DELETE" });
+      invalidateApiCache("/teachers");
       await loadTeachers();
     } catch (disableError) {
       setError(
@@ -250,6 +251,7 @@ function TeacherModal({
           teachingLevel: values.teachingLevel,
         }),
       });
+      invalidateApiCache("/teachers");
       await onSaved();
     } catch (submitError) {
       setServerError(

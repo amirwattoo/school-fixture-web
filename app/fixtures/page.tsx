@@ -16,7 +16,7 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, isAbortError } from "../../lib/api";
 import { localDateValue } from "../../lib/date";
 import type {
   AttendanceRecord,
@@ -60,27 +60,31 @@ export default function FixturesPage() {
   const [success, setSuccess] = useState("");
   const [overriding, setOverriding] = useState<ProxyFixture | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     try {
       const fixtureData = await apiRequest<{ fixtures: ProxyFixture[] }>(
         `/fixtures?date=${date}`,
+        { signal },
       );
       setFixtures(fixtureData.fixtures);
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load fixtures",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [date]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const generate = async () => {
@@ -244,10 +248,10 @@ export default function FixturesPage() {
       <PageFeedback
         empty={!fixtures.length}
         error={error}
-        loading={loading}
-        onRetry={load}
+        loading={loading && !fixtures.length}
+        onRetry={() => void load()}
       />
-      {!loading && !error && fixtures.length ? (
+      {!error && fixtures.length ? (
         <div className="space-y-4">
           {fixtures.map((fixture) => (
             <section

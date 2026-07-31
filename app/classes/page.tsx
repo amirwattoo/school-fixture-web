@@ -16,7 +16,7 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, invalidateApiCache } from "../../lib/api";
 import { type ClassSection, readableEnum } from "../../lib/school-types";
 
 const classSchema = z.object({
@@ -65,6 +65,7 @@ export default function ClassesPage() {
       await apiRequest(`/class-sections/${classSection.id}`, {
         method: "DELETE",
       });
+      invalidateApiCache("/class-sections");
       await loadClasses();
     } catch (disableError) {
       setError(
@@ -215,6 +216,7 @@ function ClassModal({
           body: JSON.stringify(values),
         },
       );
+      invalidateApiCache("/class-sections");
       await onSaved();
     } catch (submitError) {
       setServerError(

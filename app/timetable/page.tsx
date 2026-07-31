@@ -16,7 +16,7 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, cachedApiRequest, isAbortError } from "../../lib/api";
 import {
   type ClassSection,
   DAYS,
@@ -46,9 +46,9 @@ export default function TimetablePage() {
   const loadLookups = useCallback(async () => {
     try {
       const [teacherData, subjectData, classData] = await Promise.all([
-        apiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
-        apiRequest<{ subjects: Subject[] }>("/subjects?isActive=true"),
-        apiRequest<{ classSections: ClassSection[] }>(
+        cachedApiRequest<{ teachers: Teacher[] }>("/teachers?isActive=true"),
+        cachedApiRequest<{ subjects: Subject[] }>("/subjects?isActive=true"),
+        cachedApiRequest<{ classSections: ClassSection[] }>(
           "/class-sections?isActive=true",
         ),
       ]);
@@ -68,7 +68,7 @@ export default function TimetablePage() {
     }
   }, []);
 
-  const loadEntries = useCallback(async () => {
+  const loadEntries = useCallback(async (signal?: AbortSignal) => {
     if (
       (view === "teacher" && !selectedTeacher) ||
       (view === "class" && !selectedClass)
@@ -86,16 +86,18 @@ export default function TimetablePage() {
     try {
       const data = await apiRequest<{ entries: TimetableEntry[] }>(
         `/timetable?${query.toString()}`,
+        { signal },
       );
       setEntries(data.entries);
     } catch (loadError) {
+      if (isAbortError(loadError)) return;
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Unable to load timetable",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [day, selectedClass, selectedTeacher, view]);
 
@@ -104,7 +106,9 @@ export default function TimetablePage() {
   }, [loadLookups]);
 
   useEffect(() => {
-    void loadEntries();
+    const controller = new AbortController();
+    void loadEntries(controller.signal);
+    return () => controller.abort();
   }, [loadEntries]);
 
   const deleteEntry = async (entry: TimetableEntry) => {
@@ -195,13 +199,13 @@ export default function TimetablePage() {
       <PageFeedback
         empty={!entries.length}
         error={error}
-        loading={loading}
+        loading={loading && !entries.length}
         onRetry={async () => {
           await loadLookups();
           await loadEntries();
         }}
       />
-      {!loading && !error && entries.length ? (
+      {!error && entries.length ? (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">

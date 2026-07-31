@@ -16,7 +16,7 @@ import {
 } from "../../components/ui/forms";
 import { Modal } from "../../components/ui/modal";
 import { PageFeedback } from "../../components/ui/page-feedback";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, invalidateApiCache } from "../../lib/api";
 import type { Subject } from "../../lib/school-types";
 
 const subjectSchema = z.object({
@@ -63,6 +63,7 @@ export default function SubjectsPage() {
     if (!window.confirm(`Disable ${subject.name}?`)) return;
     try {
       await apiRequest(`/subjects/${subject.id}`, { method: "DELETE" });
+      invalidateApiCache("/subjects");
       await loadSubjects();
     } catch (disableError) {
       setError(
@@ -189,6 +190,7 @@ function SubjectModal({
         method: subject ? "PATCH" : "POST",
         body: JSON.stringify(values),
       });
+      invalidateApiCache("/subjects");
       await onSaved();
     } catch (submitError) {
       setServerError(

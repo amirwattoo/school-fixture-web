@@ -10,7 +10,15 @@ export function PageFeedback({
   onRetry: () => void;
 }) {
   if (loading)
-    return <p className="rounded-xl bg-white p-6 text-slate-600">Loading…</p>;
+    return (
+      <div
+        aria-label="Loading"
+        className="grid animate-pulse gap-3 rounded-xl bg-white p-5"
+      >
+        <span className="h-3 w-1/3 rounded bg-slate-200" />
+        <span className="h-3 w-2/3 rounded bg-slate-100" />
+      </div>
+    );
   if (error)
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-700">
