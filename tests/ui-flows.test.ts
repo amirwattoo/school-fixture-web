@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { canConfirmTimetableImport } from "../lib/timetable-import";
+import { canConfirmTimetableImport, resolveTimetableImportValidation } from "../lib/timetable-import";
 import { buildClassRows, buildTeacherRows, mobileAssignments, type TimetableGridData } from "../lib/timetable-grid";
 
 const source = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -40,6 +40,37 @@ test("timetable confirmation requires mappings and valid assignments", () => {
   assert.equal(canConfirmTimetableImport(preview, { "M. Ahmed": "teacher-id" }), true);
   assert.equal(canConfirmTimetableImport({ ...preview, duplicateRows: [3] }, { "M. Ahmed": "teacher-id" }), false);
   assert.equal(canConfirmTimetableImport({ ...preview, invalidRows: [{ rowNumber: 4 }] }, { "M. Ahmed": "teacher-id" }), false);
+});
+
+test("timetable confirmation revalidates resolved teacher identities", () => {
+  const rows = [
+    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Ehsan Ul Haq", subjectCode: "BIO", rowNumber: 2 },
+    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Ehsan ul Haq", subjectCode: "CHEM", rowNumber: 3 },
+  ];
+  const preview = { rows, blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [
+    { sourceName: "Ehsan Ul Haq", status: "matched" as const, teacherId: "teacher-one" },
+    { sourceName: "Ehsan ul Haq", status: "matched" as const, teacherId: "teacher-two" },
+  ] };
+  assert.deepEqual(resolveTimetableImportValidation(preview, {}).blockingErrors, []);
+  assert.equal(canConfirmTimetableImport(preview, {}), true);
+  assert.equal(resolveTimetableImportValidation({ ...preview, teacherMatches: preview.teacherMatches.map((match) => ({ ...match, teacherId: "teacher-one" })) }, {}).blockingErrors.length, 2);
+});
+
+test("confirm becomes enabled only after an ambiguous mapping resolves without a real conflict", () => {
+  const preview = {
+    rows: [
+      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Known", subjectCode: "BIO", rowNumber: 2 },
+      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Alias", subjectCode: "CHEM", rowNumber: 3 },
+    ],
+    blockingErrors: ["Teacher mapping required for Alias."], duplicateRows: [], invalidRows: [],
+    teacherMatches: [
+      { sourceName: "Known", status: "matched" as const, teacherId: "teacher-one" },
+      { sourceName: "Alias", status: "ambiguous" as const },
+    ],
+  };
+  assert.equal(canConfirmTimetableImport(preview, {}), false);
+  assert.equal(canConfirmTimetableImport(preview, { Alias: "teacher-one" }), false);
+  assert.equal(canConfirmTimetableImport(preview, { Alias: "teacher-two" }), true);
 });
 
 const grid: TimetableGridData = {
