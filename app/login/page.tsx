@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -46,11 +47,11 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center px-5 py-10">
       <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-soft sm:p-9">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
-          FGPS &amp; College No. 2
+          Proxy Management
         </p>
         <h1 className="mt-3 text-3xl font-bold text-ink">Sign in</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          School Proxy Management &amp; Fixture Automation System
+          Secure fixture, attendance, and timetable administration
         </p>
 
         <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
@@ -65,6 +66,10 @@ export default function LoginPage() {
               value={email}
             />
           </label>
+
+          <div className="-mt-2 text-right">
+            <Link className="text-sm font-semibold text-primary hover:underline" href="/forgot-password">Forgot password?</Link>
+          </div>
 
           <label className="block text-sm font-semibold text-slate-700">
             Password

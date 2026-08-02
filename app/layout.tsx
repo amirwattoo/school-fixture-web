@@ -4,8 +4,9 @@ import "./globals.css";
 import { AuthProvider } from "../components/auth-provider";
 
 export const metadata: Metadata = {
-  title: "School Proxy Management & Fixture Automation System",
-  description: "School proxy management and fixture automation",
+  title: { default: "Proxy Management", template: "%s | Proxy Management" },
+  description: "Secure multi-school proxy and timetable management",
+  applicationName: "Proxy Management",
 };
 
 export default function RootLayout({

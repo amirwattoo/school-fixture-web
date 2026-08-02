@@ -34,6 +34,7 @@ const teacherSchema = z.object({
     ),
   specializationText: z.string(),
   teachingLevel: z.enum(["LOWER", "HIGHER", "BOTH"]),
+  baseWeeklyTeachingPeriods: z.number().int().min(0).max(100),
 });
 
 type TeacherForm = z.infer<typeof teacherSchema>;
@@ -143,6 +144,7 @@ export default function TeachersPage() {
                   "WhatsApp",
                   "Subjects",
                   "Level",
+                  "Workload",
                   "Status",
                   "Actions",
                 ].map((heading) => (
@@ -168,6 +170,7 @@ export default function TeachersPage() {
                   <td className="px-4 py-3">
                     {readableEnum(teacher.teachingLevel)}
                   </td>
+                  <td className="px-4 py-3">{teacher.baseWeeklyTeachingPeriods}</td>
                   <td className="px-4 py-3">
                     <Status active={teacher.isActive} />
                   </td>
@@ -232,6 +235,7 @@ function TeacherModal({
       whatsappNumber: teacher?.whatsappNumber ?? "",
       specializationText: teacher?.subjectSpecializations.join(", ") ?? "",
       teachingLevel: teacher?.teachingLevel ?? "LOWER",
+      baseWeeklyTeachingPeriods: teacher?.baseWeeklyTeachingPeriods ?? 0,
     },
   });
 
@@ -249,6 +253,7 @@ function TeacherModal({
             .map((value) => value.trim())
             .filter(Boolean),
           teachingLevel: values.teachingLevel,
+          baseWeeklyTeachingPeriods: values.baseWeeklyTeachingPeriods,
         }),
       });
       invalidateApiCache("/teachers");
@@ -300,6 +305,9 @@ function TeacherModal({
             />
           </Field>
         </div>
+        <Field error={errors.baseWeeklyTeachingPeriods?.message} label="Weekly workload">
+          <input className={inputClass} min="0" max="100" type="number" {...register("baseWeeklyTeachingPeriods", { valueAsNumber: true })} />
+        </Field>
         {serverError ? (
           <p className="sm:col-span-2 text-sm text-red-700">{serverError}</p>
         ) : null}

@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({ reset }: { error: Error; reset: () => void }) { return <main className="flex min-h-screen items-center justify-center px-5"><section className="max-w-md rounded-2xl bg-white p-7 text-center"><h1 className="text-2xl font-bold">Proxy Management</h1><p className="mt-3 text-slate-600">Something went wrong while loading this page.</p><button className="mt-5 rounded-xl bg-primary px-4 py-2 font-semibold text-white" onClick={reset}>Try again</button></section></main>; }

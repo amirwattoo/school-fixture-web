@@ -114,7 +114,7 @@ export const apiRequest = async <T>(
     await refreshSession();
   }
   const headers = new Headers(init.headers);
-  headers.set("Content-Type", "application/json");
+  if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -166,3 +166,29 @@ export const invalidateApiCache = (pathPrefix?: string) => {
 
 export const isAbortError = (error: unknown) =>
   error instanceof DOMException && error.name === "AbortError";
+
+export const uploadApiRequest = async <T>(path: string, form: FormData, onProgress: (percent: number) => void, retryOnUnauthorized = true): Promise<T> => {
+  if (!accessToken) await refreshSession();
+  return new Promise<T>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${API_URL}${path}`);
+    request.withCredentials = true;
+    if (accessToken) request.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+    request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
+    request.onerror = () => reject(new ApiClientError("NETWORK_ERROR", "The upload could not reach the server"));
+    request.onload = () => {
+      try {
+        if (request.status === 401 && retryOnUnauthorized) {
+          refreshSession().then(() => uploadApiRequest<T>(path, form, onProgress, false)).then(resolve, reject);
+          return;
+        }
+        const body = JSON.parse(request.responseText) as SuccessResponse<T> | ErrorResponse;
+        if (request.status < 200 || request.status >= 300 || body.success === false) {
+          const failure = body as ErrorResponse;
+          reject(new ApiClientError(failure.error?.code ?? "UPLOAD_FAILED", failure.error?.message ?? "Upload failed", failure.error?.details));
+        } else resolve((body as SuccessResponse<T>).data);
+      } catch { reject(new ApiClientError("INVALID_RESPONSE", "The server returned an invalid response")); }
+    };
+    request.send(form);
+  });
+};
