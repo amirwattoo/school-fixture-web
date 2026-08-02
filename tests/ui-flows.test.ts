@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { canConfirmTimetableImport, resolveTimetableImportValidation } from "../lib/timetable-import";
+import { buildTeacherMappingPayload, canConfirmTimetableImport, initializeTeacherMappings, resolveTimetableImportValidation, teacherMappingDiagnostic } from "../lib/timetable-import";
 import { buildClassRows, buildTeacherRows, mobileAssignments, type TimetableGridData } from "../lib/timetable-grid";
 
 const source = (path: string) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -31,25 +31,25 @@ test("timetable import UI includes upload, preview, mapping, confirmation, retry
 });
 
 test("timetable confirmation remains enabled when only parallel-assignment warnings exist", () => {
-  assert.equal(canConfirmTimetableImport({ blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [{ sourceName: "Teacher One", status: "matched" }, { sourceName: "Teacher Two", status: "new" }] }, {}), true);
+  assert.equal(canConfirmTimetableImport({ blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [{ sourceTeacherRef: "src-1", sourceName: "Teacher One", status: "matched" }, { sourceTeacherRef: "src-2", sourceName: "Teacher Two", status: "new" }] }, {}), true);
 });
 
 test("timetable confirmation requires mappings and valid assignments", () => {
-  const preview = { blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [{ sourceName: "M. Ahmed", status: "ambiguous" as const }] };
+  const preview = { blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [{ sourceTeacherRef: "src-ahmed", sourceName: "M. Ahmed", status: "ambiguous" as const }] };
   assert.equal(canConfirmTimetableImport(preview, {}), false);
-  assert.equal(canConfirmTimetableImport(preview, { "M. Ahmed": "teacher-id" }), true);
-  assert.equal(canConfirmTimetableImport({ ...preview, duplicateRows: [3] }, { "M. Ahmed": "teacher-id" }), false);
-  assert.equal(canConfirmTimetableImport({ ...preview, invalidRows: [{ rowNumber: 4 }] }, { "M. Ahmed": "teacher-id" }), false);
+  assert.equal(canConfirmTimetableImport(preview, { "src-ahmed": "teacher-id" }), true);
+  assert.equal(canConfirmTimetableImport({ ...preview, duplicateRows: [3] }, { "src-ahmed": "teacher-id" }), false);
+  assert.equal(canConfirmTimetableImport({ ...preview, invalidRows: [{ rowNumber: 4 }] }, { "src-ahmed": "teacher-id" }), false);
 });
 
 test("timetable confirmation revalidates resolved teacher identities", () => {
   const rows = [
-    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Ehsan Ul Haq", subjectCode: "BIO", rowNumber: 2 },
-    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Ehsan ul Haq", subjectCode: "CHEM", rowNumber: 3 },
+    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Ehsan Ul Haq", sourceTeacherRef: "src-upper", subjectCode: "BIO", rowNumber: 2 },
+    { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Ehsan ul Haq", sourceTeacherRef: "src-lower", subjectCode: "CHEM", rowNumber: 3 },
   ];
   const preview = { rows, blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [
-    { sourceName: "Ehsan Ul Haq", status: "matched" as const, teacherId: "teacher-one" },
-    { sourceName: "Ehsan ul Haq", status: "matched" as const, teacherId: "teacher-two" },
+    { sourceTeacherRef: "src-upper", sourceName: "Ehsan Ul Haq", status: "matched" as const, teacherId: "teacher-one" },
+    { sourceTeacherRef: "src-lower", sourceName: "Ehsan ul Haq", status: "matched" as const, teacherId: "teacher-two" },
   ] };
   assert.deepEqual(resolveTimetableImportValidation(preview, {}).blockingErrors, []);
   assert.equal(canConfirmTimetableImport(preview, {}), true);
@@ -59,18 +59,35 @@ test("timetable confirmation revalidates resolved teacher identities", () => {
 test("confirm becomes enabled only after an ambiguous mapping resolves without a real conflict", () => {
   const preview = {
     rows: [
-      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Known", subjectCode: "BIO", rowNumber: 2 },
-      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Alias", subjectCode: "CHEM", rowNumber: 3 },
+      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9A", teacherName: "Known", sourceTeacherRef: "src-known", subjectCode: "BIO", rowNumber: 2 },
+      { dayOfWeek: "MONDAY", periodNumber: 4, className: "9B", teacherName: "Alias", sourceTeacherRef: "src-alias", subjectCode: "CHEM", rowNumber: 3 },
     ],
     blockingErrors: ["Teacher mapping required for Alias."], duplicateRows: [], invalidRows: [],
     teacherMatches: [
-      { sourceName: "Known", status: "matched" as const, teacherId: "teacher-one" },
-      { sourceName: "Alias", status: "ambiguous" as const },
+      { sourceTeacherRef: "src-known", sourceName: "Known", status: "matched" as const, teacherId: "teacher-one" },
+      { sourceTeacherRef: "src-alias", sourceName: "Alias", status: "ambiguous" as const },
     ],
   };
   assert.equal(canConfirmTimetableImport(preview, {}), false);
-  assert.equal(canConfirmTimetableImport(preview, { Alias: "teacher-one" }), false);
-  assert.equal(canConfirmTimetableImport(preview, { Alias: "teacher-two" }), true);
+  assert.equal(canConfirmTimetableImport(preview, { "src-alias": "teacher-one" }), false);
+  assert.equal(canConfirmTimetableImport(preview, { "src-alias": "teacher-two" }), true);
+});
+
+test("case-different teacher mappings survive state and payload serialization by source reference", () => {
+  const preview = { blockingErrors: [], duplicateRows: [], invalidRows: [], teacherMatches: [
+    { sourceTeacherRef: "src-upper", sourceName: "Ehsan Ul Haq", status: "matched" as const, teacherId: "teacher-one" },
+    { sourceTeacherRef: "src-lower", sourceName: "Ehsan ul Haq", status: "matched" as const, teacherId: "teacher-two" },
+  ] };
+  const mappings = initializeTeacherMappings(preview);
+  assert.deepEqual(mappings, { "src-upper": "teacher-one", "src-lower": "teacher-two" });
+  const restored = initializeTeacherMappings(preview, JSON.parse(JSON.stringify(mappings)) as Record<string, string>);
+  assert.deepEqual(restored, mappings);
+  assert.deepEqual(buildTeacherMappingPayload(preview, restored), [
+    { sourceTeacherRef: "src-upper", sourceTeacherName: "Ehsan Ul Haq", resolvedTeacherId: "teacher-one" },
+    { sourceTeacherRef: "src-lower", sourceTeacherName: "Ehsan ul Haq", resolvedTeacherId: "teacher-two" },
+  ]);
+  assert.deepEqual(teacherMappingDiagnostic(preview, restored), { detectedTeachers: 2, mappingEntries: 2, uniqueResolvedTeacherIds: 2 });
+  assert.equal(canConfirmTimetableImport(preview, restored), true);
 });
 
 const grid: TimetableGridData = {

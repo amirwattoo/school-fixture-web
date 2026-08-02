@@ -1,4 +1,5 @@
 export type TimetableTeacherMatch = {
+  sourceTeacherRef: string;
   sourceName: string;
   status: "matched" | "new" | "ambiguous";
   teacherId?: string;
@@ -21,34 +22,61 @@ export type TimetableImportValidation = {
     periodNumber: number;
     className: string;
     teacherName: string;
+    sourceTeacherRef: string;
     subjectCode: string;
     rowNumber: number;
   }>;
 };
 
+export type TeacherResolutionState = Record<string, string>;
+export type TeacherMappingPayload = { sourceTeacherRef: string; sourceTeacherName: string; resolvedTeacherId?: string };
+
 const normalize = (value: string) =>
   value.trim().toLocaleLowerCase("en").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
+export const initializeTeacherMappings = (
+  preview: TimetableImportValidation,
+  previous: TeacherResolutionState = {},
+): TeacherResolutionState => Object.fromEntries(preview.teacherMatches.map((match) => [
+  match.sourceTeacherRef,
+  previous[match.sourceTeacherRef] ?? match.teacherId ?? "",
+]));
+
+export const buildTeacherMappingPayload = (
+  preview: TimetableImportValidation,
+  mappings: TeacherResolutionState,
+): TeacherMappingPayload[] => preview.teacherMatches.map((match) => ({
+  sourceTeacherRef: match.sourceTeacherRef,
+  sourceTeacherName: match.sourceName,
+  ...(mappings[match.sourceTeacherRef] ? { resolvedTeacherId: mappings[match.sourceTeacherRef] } : {}),
+}));
+
+export const teacherMappingDiagnostic = (preview: TimetableImportValidation, mappings: TeacherResolutionState) => ({
+  detectedTeachers: preview.teacherMatches.length,
+  mappingEntries: Object.keys(mappings).filter((ref) => preview.teacherMatches.some((match) => match.sourceTeacherRef === ref)).length,
+  uniqueResolvedTeacherIds: new Set(Object.values(mappings).filter(Boolean)).size,
+});
+
 export const resolveTimetableImportValidation = (
   preview: TimetableImportValidation,
-  mappings: Record<string, string>,
+  mappings: TeacherResolutionState,
 ) => {
   if (!preview.rows) return { blockingErrors: preview.blockingErrors, duplicateRows: preview.duplicateRows };
   const identities = new Map<string, string>();
   const blockingErrors: string[] = [];
   for (const match of preview.teacherMatches) {
-    const mappedId = mappings[match.sourceName];
+    const mappedId = mappings[match.sourceTeacherRef];
     if (match.status === "ambiguous" && !mappedId) {
       blockingErrors.push(`Teacher mapping required for ${match.sourceName}.`);
       continue;
     }
-    identities.set(match.sourceName, mappedId || match.teacherId || match.temporaryIdentity || `preview:${match.sourceName}`);
+    identities.set(match.sourceTeacherRef, mappedId || match.teacherId || match.temporaryIdentity || `preview:${match.sourceTeacherRef}`);
   }
 
   const seen = new Map<string, number>();
   const duplicateRows: number[] = [];
   for (const row of preview.rows) {
-    const identity = identities.get(row.teacherName);
+    const identity = identities.get(row.sourceTeacherRef);
     if (!identity) continue;
     const key = `${row.dayOfWeek}|${row.periodNumber}|${normalize(row.className)}|${identity}|${normalize(row.subjectCode)}`;
     const originalRow = seen.get(key);
@@ -61,7 +89,7 @@ export const resolveTimetableImportValidation = (
   const duplicateSet = new Set(duplicateRows);
   const slots = new Map<string, typeof preview.rows>();
   for (const row of preview.rows.filter((item) => !duplicateSet.has(item.rowNumber))) {
-    const identity = identities.get(row.teacherName);
+    const identity = identities.get(row.sourceTeacherRef);
     if (!identity) continue;
     const key = `${row.dayOfWeek}|${row.periodNumber}|${identity}`;
     slots.set(key, [...(slots.get(key) ?? []), row]);
@@ -77,13 +105,13 @@ export const resolveTimetableImportValidation = (
 
 export const canConfirmTimetableImport = (
   preview: TimetableImportValidation,
-  mappings: Record<string, string>,
+  mappings: TeacherResolutionState,
 ) => {
   const validation = resolveTimetableImportValidation(preview, mappings);
   return validation.blockingErrors.length === 0 &&
   validation.duplicateRows.length === 0 &&
   preview.invalidRows.length === 0 &&
   preview.teacherMatches.every(
-    (match) => match.status !== "ambiguous" || Boolean(mappings[match.sourceName]),
+    (match) => match.status !== "ambiguous" || Boolean(mappings[match.sourceTeacherRef]),
   );
 };
