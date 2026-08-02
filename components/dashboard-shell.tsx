@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "./auth-provider";
 
-const activeLinks = [["/dashboard", "Dashboard"], ["/teachers", "Teachers"], ["/subjects", "Subjects"], ["/classes", "Classes"], ["/timetable", "Timetable"], ["/timetable/import", "Timetable Import"], ["/attendance", "Attendance"], ["/fixtures", "Fixtures"], ["/records", "Records"], ["/whatsapp", "WhatsApp Status"], ["/settings", "Settings"]] as const;
+const activeLinks = [["/dashboard", "Dashboard"], ["/teachers", "Teachers"], ["/subjects", "Subjects"], ["/classes", "Classes"], ["/timetable", "Timetable"], ["/attendance", "Attendance"], ["/fixtures", "Fixtures"], ["/records", "Records"], ["/whatsapp", "WhatsApp Status"], ["/settings", "Settings"]] as const;
 const readableRole = (role: string) => role.toLocaleLowerCase("en").split("_").map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(" ");
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
